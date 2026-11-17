@@ -1,0 +1,6 @@
+# Runtime dependencies of sem6000-wrapper.py.
+# The sem6000 package itself (python3-voltcraft-sem6000) is not on PyPI; see README.md.
+paho-mqtt>=2.0,<3
+python-dotenv>=1.0
+influxdb>=5.3,<6
+bluepy>=1.3.0

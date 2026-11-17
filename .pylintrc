@@ -1,0 +1,10 @@
+[FORMAT]
+max-line-length=500
+max-module-lines=1500
+indent-string='  '
+indent-after-paren=2
+
+[MESSAGES CONTROL]
+disable=missing-module-docstring,
+        missing-function-docstring,
+        missing-class-docstring

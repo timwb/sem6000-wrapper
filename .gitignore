@@ -1,0 +1,8 @@
+# Config files contain passwords and PINs
+*.env
+!*.env.example
+*.yaml
+
+__pycache__/
+*.pyc
+.venv/

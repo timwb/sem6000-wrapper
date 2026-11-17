@@ -1,0 +1,81 @@
+# Template unit: one instance per settings file.
+#   systemctl enable --now sem6000-wrapper@heatpump   ->  /etc/homeautomation/sem6000-wrapper-heatpump.env
+[Unit]
+Description=SEM6000 energy meter bridge to MQTT / Home Assistant / InfluxDB (%i)
+Documentation=file:///opt/sem6000-wrapper/README.md
+Wants=network-online.target bluetooth.target
+After=network-online.target bluetooth.target mosquitto.service influxdb.service
+
+[Service]
+# The script reports READY=1 / STATUS= / STOPPING=1 via sd_notify and pings the watchdog from its main
+# loop. A call to an unreachable meter can legitimately block for a few minutes (the library retries and
+# reconnects), so the watchdog only catches a real hang.
+Type=notify
+NotifyAccess=main
+WatchdogSec=10min
+
+# Base path: everything else is relative to it. systemd doesn't allow a relative or variable executable,
+# so /usr/bin/env resolves .venv/bin/python against the working directory.
+WorkingDirectory=/opt/sem6000-wrapper
+ExecStart=/usr/bin/env .venv/bin/python sem6000-wrapper.py
+
+# Settings are read by systemd (as root), so the file can be root:root 0600.
+# SEM6000_INSTANCE in the file (if any) overrides the value set here.
+EnvironmentFile=/etc/homeautomation/sem6000-wrapper-%i.env
+Environment=SEM6000_INSTANCE=%i
+Environment=PYTHONUNBUFFERED=1
+# The filesystem is read-only for the service; don't try to write __pycache__
+# Pre-compile once after each install instead (existing .pyc files are still read):
+#   sudo /opt/sem6000-wrapper/.venv/bin/python -m compileall -q /opt/sem6000-wrapper/sem6000 /opt/sem6000-wrapper/.venv
+Environment=PYTHONDONTWRITEBYTECODE=1
+SyslogIdentifier=sem6000-wrapper-%i
+
+Restart=on-failure
+RestartSec=60s
+# Exit code 2 = configuration error: restarting won't help.
+RestartPreventExitStatus=2
+# The script marks the meters offline in MQTT and flushes queued InfluxDB points on SIGTERM.
+TimeoutStopSec=30
+
+# Run as a transient unprivileged user allocated at start; no system user needed. This also implies
+# NoNewPrivileges=yes, ProtectSystem=strict, ProtectHome=read-only, PrivateTmp=yes, RemoveIPC=yes and
+# RestrictSUIDSGID=yes. /opt/sem6000-wrapper must be world-readable (the settings file need not be, see above).
+DynamicUser=yes
+
+# Optional: logging to a file in addition to the journal. Uncomment LogsDirectory= (creates
+# /var/log/sem6000-wrapper, writable by the dynamic user) and append "-l /var/log/sem6000-wrapper/%i.log" to ExecStart=.
+#LogsDirectory=sem6000-wrapper
+
+# Bluetooth: bluepy-helper (started by the script) opens raw HCI / L2CAP sockets, which needs
+# CAP_NET_RAW and CAP_NET_ADMIN. Ambient capabilities are inherited by bluepy-helper, so no setcap on the
+# binary is needed (file capabilities would be ignored anyway because of NoNewPrivileges=yes).
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+# AF_BLUETOOTH for the meters, AF_INET/AF_INET6 for MQTT/InfluxDB, AF_UNIX for journald and sd_notify.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_BLUETOOTH
+# Do NOT set PrivateUsers=yes or PrivateNetwork=yes: in a user namespace the capabilities above don't
+# count for Bluetooth sockets, and the HCI adapter only exists in the host network namespace.
+
+# Hardening - run least-privilege
+ProtectHome=yes
+ProtectProc=invisible
+ProcSubset=pid
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
